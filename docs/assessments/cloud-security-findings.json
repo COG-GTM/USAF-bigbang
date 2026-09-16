@@ -1,0 +1,885 @@
+{
+  "metadata": {
+    "title": "Cloud security assessment of the Big Bang default configuration",
+    "repository": "COG-GTM/USAF-bigbang",
+    "base_branch": "master",
+    "commit": "6cfe27bd704eba732f795045ae5d0dd86e84e0ff",
+    "chart_version": "3.32.0",
+    "assessment_date": "2026-09-16",
+    "method": "Static review of chart defaults, Helm templates, policy values, and published documentation. No cluster was rendered against or contacted.",
+    "severity_scale": {
+      "CAT I": "Default that directly exposes an administrative interface, credential, or key, or that removes a required control with no compensating control.",
+      "CAT II": "Default that materially weakens a required control, or a documented tenant responsibility whose omission would produce a CAT I or CAT II condition.",
+      "CAT III": "Default that reduces defense in depth, degrades evidence quality, or narrows an otherwise sound control."
+    },
+    "classifications": {
+      "insecure_by_default": "Insecure by default",
+      "secure_by_default_tenant_can_weaken": "Secure by default; tenant can weaken",
+      "documented_tenant_responsibility": "Documented tenant responsibility"
+    },
+    "owners": [
+      "Platform",
+      "Tenant",
+      "Government decision"
+    ],
+    "stig_relation_note": "DISA Kubernetes STIG V-2 series rules target control-plane and node components. Where a rule is cited for a platform workload default, the relation is marked 'analogous' to show that the rule's intent applies but the rule text does not name the component."
+  },
+  "findings": [
+    {
+      "id": "BB-NET-001",
+      "title": "Kubernetes API egress allowed to 0.0.0.0/0",
+      "finding": "networkPolicies.controlPlaneCidr defaults to 0.0.0.0/0. Every package NetworkPolicy that permits Kubernetes API egress therefore permits egress to any address. The Gatekeeper template shows the compensating behavior: when the value is 0.0.0.0/0 only the cloud metadata address 169.254.169.254/32 is excluded.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:171-174", "note": "Default 0.0.0.0/0 with instructions to derive the real endpoint CIDR"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:70-76", "note": "Only the metadata address is excluded when the default is used"}
+      ],
+      "stig_rules": [{"id": "V-242410", "relation": "analogous"}],
+      "nist_controls": ["SC-7", "SC-7(5)", "CM-7"],
+      "zero_trust_pillars": ["Network"],
+      "severity": "CAT II",
+      "remediation": "Set networkPolicies.controlPlaneCidr to the /32 (or minimal range) returned by `kubectl get endpoints -n default kubernetes` in the environment values file.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-002",
+      "title": "VPC egress allowed to 0.0.0.0/0",
+      "finding": "networkPolicies.vpcCidr defaults to 0.0.0.0/0. Packages that use the VPC definition for cloud service access (Vault KMS, DNS) receive unrestricted egress. The values comment recommends private endpoints but the default does not assume them.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:179-183", "note": "Default 0.0.0.0/0 and private-endpoint guidance"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:77-82", "note": "vpcCidr appended as an additional ipBlock only when narrower than the control plane CIDR"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7", "SC-7(5)"],
+      "zero_trust_pillars": ["Network"],
+      "severity": "CAT II",
+      "remediation": "Set networkPolicies.vpcCidr to the VPC or private-endpoint CIDR after provisioning private service endpoints.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-003",
+      "title": "SSO egress definition allows all destinations and all ports",
+      "finding": "The global egress definition `sso` permits ipBlock 0.0.0.0/0 with no port restriction. Any package NetworkPolicy that references the SSO definition allows unrestricted egress until the tenant narrows it to the identity provider's address space.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:190-196", "note": "sso egress definition with cidr 0.0.0.0/0 and no ports"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7(5)", "AC-4"],
+      "zero_trust_pillars": ["Network", "Users"],
+      "severity": "CAT II",
+      "remediation": "Override networkPolicies.egress.definitions.sso with the identity provider CIDRs and TCP 443 only.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-004",
+      "title": "Object storage egress allowed to any Internet address on TCP 443",
+      "finding": "The `storage-subnets` egress definition permits 0.0.0.0/0 on TCP 443. Packages that write logs, metrics, traces, or backups to object storage (Loki, Tempo, Mimir, Velero, Thanos) can reach any HTTPS endpoint on the Internet by default. Restricting this depends on whether the program provisions private storage endpoints.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:198-205", "note": "storage-subnets definition"},
+        {"ref": "chart/values.yaml:179-182", "note": "Private endpoint recommendation"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7(5)", "AC-4", "SC-7(4)"],
+      "zero_trust_pillars": ["Network", "Data"],
+      "severity": "CAT II",
+      "remediation": "Decide whether object storage is reached through private endpoints or a controlled egress path, then set storage-subnets to that CIDR set.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Cross-boundary egress: will platform telemetry and backup data leave the enclave to commercial or Government cloud object storage, and through which controlled path?"}
+    },
+    {
+      "id": "BB-NET-005",
+      "title": "Kafka egress definition allows any Internet address",
+      "finding": "The `kafka-subnets` egress definition permits 0.0.0.0/0 on TCP 9092 and 9093. The definition is dormant unless a package or tenant NetworkPolicy references it, but any consumer inherits Internet-wide broker egress.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:219-228", "note": "kafka-subnets definition"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7(5)"],
+      "zero_trust_pillars": ["Network"],
+      "severity": "CAT III",
+      "remediation": "Override kafka-subnets with the managed broker CIDRs when Kafka egress is needed; otherwise leave unused and confirm no NetworkPolicy references it.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-006",
+      "title": "Ingress and datastore definitions default to all RFC 1918 space",
+      "finding": "The load-balancer-subnets, kubeAPI, redis-subnets, and database-subnets definitions default to 10.0.0.0/8, 172.16.0.0/12, and 192.168.0.0/16. This allows any private address, including other tenants' networks in a shared enclave, to reach ingress gateways and policy webhooks. The values comments and the Keycloak production guidance instruct tenants to narrow these ranges.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:206-218", "note": "redis-subnets"},
+        {"ref": "chart/values.yaml:229-239", "note": "database-subnets"},
+        {"ref": "chart/values.yaml:244-262", "note": "load-balancer-subnets and kubeAPI ingress"},
+        {"ref": "docs/configuration/production-considerations/keycloak.md:22", "note": "Instruction to narrow private ranges"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7", "AC-4"],
+      "zero_trust_pillars": ["Network"],
+      "severity": "CAT III",
+      "remediation": "Replace each definition with the actual load balancer, control plane, and datastore subnets for the environment.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-007",
+      "title": "NetworkPolicy enforcement depends on the cluster CNI",
+      "finding": "Global NetworkPolicies are enabled, but the chart can only render policy objects; enforcement depends on a CNI that implements NetworkPolicy. The security model and network policy guidance state this dependency explicitly. A cluster without an enforcing CNI silently accepts every rendered policy while enforcing none.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:168-170", "note": "networkPolicies.enabled: true"},
+        {"ref": "docs/concepts/security-model.md:35", "note": "Enforcement depends on a compatible CNI"},
+        {"ref": "docs/configuration/network-policies.md:7-9", "note": "Policies supplement other controls"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7", "CM-6"],
+      "zero_trust_pillars": ["Network"],
+      "severity": "CAT II",
+      "remediation": "Record the CNI and its NetworkPolicy support in the system security plan and verify enforcement with a denied-connection test during accreditation.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-008",
+      "title": "Ingress gateway egress permitted to every in-cluster service",
+      "finding": "The shared gateway ingress NetworkPolicy helper renders an egress rule with the wildcard `'*': true`, allowing the ingress gateway pods to initiate connections to any pod in the cluster. Gateway compromise therefore yields a full east-west pivot at Layer 3/4; only Istio AuthorizationPolicies (disabled by default, see BB-NET-009) would constrain it.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/_helpers.tpl:1233-1237", "note": "Wildcard egress from gateway NetworkPolicy"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7", "SC-7(21)"],
+      "zero_trust_pillars": ["Network", "Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Enable Istio hardened mode so AuthorizationPolicies restrict gateway-to-service traffic, or add per-package ingress policies that name the gateway as the only permitted source.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-NET-009",
+      "title": "Istio hardened mode (Sidecar, ServiceEntry, AuthorizationPolicy generation) disabled by default",
+      "finding": "Istio hardening is derived from istiod.values.hardened.enabled, which is not set in chart/values.yaml and defaults to false in the helpers. As a result package Sidecar resources, ServiceEntry egress restriction, and AuthorizationPolicy generation from NetworkPolicies are all off unless the tenant opts in.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/istiod/values.yaml:15", "note": "hardened.enabled defaults to false"},
+        {"ref": "chart/templates/_helpers.tpl:1114-1124", "note": "Sidecar and AuthorizationPolicy generation gated on hardened"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-7(21)", "AC-3", "AC-4"],
+      "zero_trust_pillars": ["Applications & Workloads", "Network"],
+      "severity": "CAT II",
+      "remediation": "Set istiod.values.hardened.enabled: true in environment values and validate each package's generated AuthorizationPolicies against the integration test suite.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-001",
+      "title": "Public gateway TLS server has no explicit minimum protocol version or cipher suites",
+      "finding": "The default public gateway terminates TLS in SIMPLE mode with credentialName public-cert and does not set minProtocolVersion or cipherSuites. The effective policy is the Istio proxy default rather than a chart-pinned FIPS or TLS 1.2+ profile, and a tenant gateway override can lower it without triggering any policy.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/templates/istio-gateway/_defaults.tpl:14-22", "note": "HTTPS server with mode SIMPLE only"},
+        {"ref": "docs/configuration/gateways.md:46-47", "note": "Documented gateway TLS settings"}
+      ],
+      "stig_rules": [{"id": "V-242418", "relation": "analogous"}, {"id": "V-242438", "relation": "analogous"}],
+      "nist_controls": ["SC-8", "SC-8(1)", "SC-13"],
+      "zero_trust_pillars": ["Network"],
+      "severity": "CAT III",
+      "remediation": "Pin tls.minProtocolVersion: TLSV1_2 (or TLSV1_3) and an approved cipherSuites list on every gateway server, and add a Kyverno rule that rejects Gateway resources without them.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-002",
+      "title": "Development domain and a committed development TLS private key are used by evaluation workflows",
+      "finding": "The default domain is dev.bigbang.mil and the repository contains chart/ingress-certs.yaml, a values file holding an RSA private key and certificate for the public gateway. The quickstart script applies this file automatically. Any deployment that carries the evaluation values forward serves production traffic with a private key that is public in this repository.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:2", "note": "Default domain"},
+        {"ref": "chart/ingress-certs.yaml:5-9", "note": "Committed private key material for public-cert"},
+        {"ref": "docs/reference/scripts/quickstart.sh:124", "note": "Quickstart applies ingress-certs.yaml"},
+        {"ref": "docs/getting-started/prerequisites.md:18", "note": "Quickstart is evaluation only"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-12", "SC-17", "IA-5(2)"],
+      "zero_trust_pillars": ["Devices", "Network"],
+      "severity": "CAT II",
+      "remediation": "Issue the public gateway certificate from the program PKI, supply it as a SOPS-encrypted Secret, set domain to the accredited FQDN, and never include chart/ingress-certs.yaml in production values.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-003",
+      "title": "Mesh mTLS defaults to STRICT but can be set PERMISSIVE per package",
+      "finding": "The metrics helper treats istio.mtls.mode as STRICT when unset, confirming STRICT is the platform default. Any package can set istio.mtls.mode: PERMISSIVE in its values, and packages outside the mesh (documented historically for Grafana, Prometheus, and Alertmanager) receive unencrypted traffic from the gateway. No policy rejects a PERMISSIVE PeerAuthentication.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/templates/_helpers.tpl:1150-1154", "note": "STRICT assumed as default mode"},
+        {"ref": "docs/concepts/architecture.md:142-144", "note": "Encryption varies for workloads outside the mesh"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-8", "SC-8(1)", "SC-23", "IA-3"],
+      "zero_trust_pillars": ["Applications & Workloads", "Network"],
+      "severity": "CAT II",
+      "remediation": "Add a Kyverno policy that denies PeerAuthentication resources with mode PERMISSIVE or DISABLE outside an approved exception list, and require Istio injection or ambient enrollment for every tenant namespace.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-004",
+      "title": "Prometheus and Alloy scrape targets over mTLS with certificate verification disabled",
+      "finding": "When STRICT mTLS is active, the monitoring, Grafana, and Alloy templates present the Istio workload certificate but set insecureSkipVerify: true. The inline comments explain that Prometheus does not support Istio security naming. Traffic is encrypted but the collector does not authenticate the server identity.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/monitoring/values.yaml:240-247", "note": "ServiceMonitor TLS config"},
+        {"ref": "chart/templates/monitoring/values.yaml:327-335", "note": "Prometheus scrape TLS config"},
+        {"ref": "chart/templates/grafana/values.yaml:99-106", "note": "Grafana ServiceMonitor TLS config"},
+        {"ref": "chart/templates/alloy/values.yaml:183-189", "note": "Alloy remote-write TLS config"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-8", "SC-23", "IA-3"],
+      "zero_trust_pillars": ["Visibility & Analytics", "Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Document the compensating control (SPIFFE identity enforced by the receiving sidecar) in the SSP, and track upstream support for SPIFFE-aware verification so insecureSkipVerify can be removed.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-005",
+      "title": "In-cluster telemetry endpoints are plaintext and rely on the mesh for encryption",
+      "finding": "Alloy writes to Loki over http://, sends traces to Tempo with tls.insecure: true, and falls back to plain HTTP remote-write when sidecar injection is absent. Grafana data sources and the Flux Grafana notification provider also use http:// service URLs. Confidentiality of logs, traces, and metrics in transit exists only while the namespaces are enrolled in the mesh with STRICT mTLS.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/templates/alloy/values.yaml:39", "note": "Loki push URL over http"},
+        {"ref": "chart/templates/alloy/values.yaml:169-178", "note": "Tempo OTLP destination with tls.insecure"},
+        {"ref": "chart/templates/alloy/values.yaml:190-192", "note": "Plain HTTP remote-write when no sidecar"},
+        {"ref": "chart/templates/grafana/values.yaml:170", "note": "Prometheus data source over http"},
+        {"ref": "chart/templates/grafana/values.yaml:228", "note": "Loki data source over http"},
+        {"ref": "chart/templates/grafana/flux/provider.yaml:14", "note": "Flux notification provider over http"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-8", "SC-8(1)"],
+      "zero_trust_pillars": ["Visibility & Analytics", "Network"],
+      "severity": "CAT III",
+      "remediation": "Keep logging, monitoring, tempo, and grafana namespaces mesh-enrolled with STRICT mTLS and add a Kyverno rule that blocks disabling istio.enabled for those packages without a documented exception.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-006",
+      "title": "cert-manager is enabled with no issuers configured",
+      "finding": "cert-manager is enabled by default but both bundled issuers (self-signed and Let's Encrypt) are disabled, and no ClusterIssuer is rendered. Certificate lifecycle for gateways and packages is therefore entirely the tenant's responsibility, and there is no automated renewal path until an issuer is configured.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:1340-1342", "note": "certManager enabled"},
+        {"ref": "chart/values.yaml:1373-1377", "note": "Both issuers disabled"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-12", "SC-17"],
+      "zero_trust_pillars": ["Devices"],
+      "severity": "CAT III",
+      "remediation": "Configure a ClusterIssuer backed by the program CA (ACME, Vault, or CA key pair) and monitor Certificate expiry through the bundled Prometheus rules.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-007",
+      "title": "Istio CNI disabled, so sidecar injection uses a privileged istio-init container",
+      "finding": "istioCNI is disabled by default. In sidecar mode every injected pod therefore runs an istio-init container that requires NET_ADMIN and NET_RAW to program iptables, and the default security context policy explicitly excludes istio-init. Enabling Istio CNI removes this per-pod privilege.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:274-276", "note": "istioCNI.enabled: false"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:438-441", "note": "istio-init excluded from default security context"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AC-6", "CM-7", "CM-7(1)"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Enable istioCNI so traffic redirection is performed by the node-level CNI plugin and remove the istio-init exclusion.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-TLS-008",
+      "title": "Ambient data plane is opt-in and enlarges the pod security exception set when enabled",
+      "finding": "Ambient mode is off by default. Enabling it activates ztunnel exceptions to the non-root, capability, hostPath, and volume-type policies and a Gatekeeper host filesystem exception. The choice between sidecar and ambient data planes changes the accepted privilege set for the mesh and is an architecture decision, not a values tweak.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/values.yaml:5-11", "note": "istio.ambient.enabled: false"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:13-58", "note": "ztunnel policy exceptions"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:127-130", "note": "ztunnel host filesystem exception"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AC-6", "CM-7", "SC-8"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Select the data-plane mode during architecture review, record the corresponding exception set in the SSP, and re-run the policy exception review whenever the mode changes.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Architecture: sidecar or ambient data plane for the accredited baseline, given the different privileged-component exception sets each requires?"}
+    },
+    {
+      "id": "BB-POL-001",
+      "title": "Service account token automount policy runs in Audit mode",
+      "finding": "The disallow-auto-mount-service-account-token policy is enabled but set to validationFailureAction: Audit, so workloads that mount API credentials are reported rather than rejected. A mutation policy disables automount on the default ServiceAccount of a fixed list of platform namespaces, which is a partial compensating control that does not cover tenant namespaces.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:255-257", "note": "Audit action"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:1022-1053", "note": "Mutation limited to listed namespaces"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AC-6", "AC-6(10)", "IA-5", "CM-6"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT II",
+      "remediation": "Move the policy to Enforce after remediating the reported platform pods and extend the automount mutation to all tenant namespaces.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-002",
+      "title": "Container image signature verification is disabled",
+      "finding": "require-image-signature is disabled and, if enabled, defaults to Audit. Provenance therefore rests on the registry allow-list alone. The security model states that presence in a registry is not proof of provenance or vulnerability compliance. Enabling verification requires the program to select trusted signing keys or a keyless trust root.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:405-407", "note": "Signature policy disabled, Audit"},
+        {"ref": "docs/concepts/security-model.md:47-49", "note": "Registry presence is not provenance"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SI-7", "SI-7(1)", "CM-14", "SR-4(4)"],
+      "zero_trust_pillars": ["Applications & Workloads", "Automation & Orchestration"],
+      "severity": "CAT II",
+      "remediation": "Enable require-image-signature in Enforce mode with the Iron Bank public key (or program signing key) as the trust root, after confirming every deployed image is signed.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Supply chain: which signing authority (Iron Bank cosign key, program key, or keyless identity) constitutes the trusted image provenance root for the baseline?"}
+    },
+    {
+      "id": "BB-POL-003",
+      "title": "Required workload labels are audited, not enforced",
+      "finding": "require-labels is enabled with validationFailureAction: Audit. Workloads without the required app.kubernetes.io labels are admitted, degrading inventory, ownership attribution, and the label-based selectors used by NetworkPolicies and monitoring.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:409-415", "note": "Audit action and required label list"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CM-8", "CM-8(3)"],
+      "zero_trust_pillars": ["Visibility & Analytics"],
+      "severity": "CAT III",
+      "remediation": "Promote require-labels to Enforce for tenant namespaces once platform packages are conformant.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-004",
+      "title": "Runtime security agents require privileged, host-namespace, and host-path-write exceptions selected by pod name glob",
+      "finding": "NeuVector (enabled by default) is excluded from disallow-privileged-containers, disallow-host-namespaces, and restrict-host-path-write; Twistlock receives the same exceptions when enabled. Exceptions are keyed on pod name patterns such as neuvector-enforcer-pod*, so any pod created in that namespace with a matching name inherits the exception. Gatekeeper's host filesystem constraint mirrors the same list.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:125-148", "note": "Host namespace exceptions"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:242-251", "note": "Privileged container exceptions"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:842-850", "note": "Host path write exceptions"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:115-122", "note": "Gatekeeper host filesystem exceptions"}
+      ],
+      "stig_rules": [{"id": "V-254800", "relation": "analogous"}],
+      "nist_controls": ["AC-6", "CM-7", "CM-7(5)", "SI-4"],
+      "zero_trust_pillars": ["Applications & Workloads", "Visibility & Analytics"],
+      "severity": "CAT II",
+      "remediation": "Formally accept the privileged agent footprint, restrict namespace write access so only the package HelmRelease can create pods in neuvector and twistlock, and prefer label or ServiceAccount selectors over name globs where the policy supports them.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Risk acceptance: is a privileged, host-namespace runtime security agent (NeuVector, optionally Twistlock) accepted on every node in exchange for runtime detection coverage?"}
+    },
+    {
+      "id": "BB-POL-005",
+      "title": "Log collectors receive hostPath and SELinux spc_t exceptions",
+      "finding": "Alloy (enabled by default) and Fluent Bit (optional) are excluded from restrict-host-path-mount and restrict-selinux-type so they can read node log directories using the super-privileged spc_t type. Gatekeeper carries a matching host filesystem exception for Alloy. The comments mark several of these exceptions as requiring further justification.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:752-770", "note": "Host path mount exceptions"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:907-939", "note": "SELinux spc_t exceptions"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:123-126", "note": "Alloy host filesystem exception"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AC-6", "CM-7", "AU-9"],
+      "zero_trust_pillars": ["Visibility & Analytics", "Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Confine the collector to read-only mounts of /var/log/pods and /var/log/containers, evaluate a dedicated SELinux type instead of spc_t, and document the residual exception in the SSP.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-006",
+      "title": "Capability-drop policies exclude platform agent pods",
+      "finding": "add-default-capability-drop and require-drop-all-capabilities are enforced, but both exclude NeuVector, Twistlock, and other agent pods by name pattern. Those pods retain their full capability set at admission time.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:64-79", "note": "add-default-capability-drop exclusions"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:351-402", "note": "require-drop-all-capabilities exclusions"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AC-6", "CM-7"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Replace blanket exclusions with an explicit minimal capability allow-list per agent container in the package chart.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-007",
+      "title": "Twistlock, when enabled, runs unconfined AppArmor and host-network defenders",
+      "finding": "Twistlock is disabled by default. Enabling it adds an exclusion from restrict-apparmor because the defender uses an unconfined profile, an exclusion from disallow-host-namespaces because the defender uses host networking, and a Gatekeeper host filesystem exception. Host networking also bypasses Istio sidecar injection for those pods.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/values.yaml:1266-1268", "note": "Twistlock disabled"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:683-693", "note": "Unconfined AppArmor exception"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:129-139", "note": "Host network exception and rationale"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:137-145", "note": "Gatekeeper exception"}
+      ],
+      "stig_rules": [{"id": "V-242414", "relation": "analogous"}],
+      "nist_controls": ["AC-6", "CM-7", "SC-7"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Deploy only one runtime security agent; if Twistlock is selected, document the unconfined and host-network exceptions and disable NeuVector.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-008",
+      "title": "Image registry allow-list is enforced but tenant-extensible and excludes gateways",
+      "finding": "restrict-image-registries is enforced and limited to registry1.dso.mil and registry.dso.mil, and Gatekeeper's allowedDockerRegistries mirrors the list. The allow-list is a plain values array that any environment override can extend, and Istio ingress and egress gateway deployments are excluded because their image is set to `auto`.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:885-904", "note": "Allow-list and gateway exclusion"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:97-101", "note": "Gatekeeper allow-list"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CM-14", "SI-7", "CM-7(5)"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT II",
+      "remediation": "Treat additions to the registry allow-list as a configuration change requiring change-board approval, and verify the istiod proxy image used for gateway injection is itself sourced from an approved registry.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-009",
+      "title": "Mutable image tag policy excludes gateway deployments",
+      "finding": "disallow-image-tags is enforced but excludes istio-gateway pods because the upstream gateway chart pins the image to the `auto` tag and relies on istiod injection. The effective gateway image is therefore determined at runtime by istiod's proxy configuration rather than by a reviewable manifest.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:193-209", "note": "Gateway exclusion for auto tag"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CM-14", "CM-2"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Record the istiod proxy image and digest as part of the release baseline evidence so the gateway image is traceable despite the auto tag.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-010",
+      "title": "Pod Security Admission is not configured by the chart",
+      "finding": "The chart relies on Kyverno (and optionally Gatekeeper) for pod security. It does not label namespaces with pod-security.kubernetes.io levels or configure the built-in Pod Security Admission controller. The prerequisites guidance states that admission control must be chosen and configured deliberately and that enabling a policy engine does not guarantee a compliance posture.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "docs/getting-started/prerequisites.md:66-70", "note": "Admission control is a tenant choice"},
+        {"ref": "docs/concepts/security-model.md:29-31", "note": "Policy effectiveness depends on configuration"}
+      ],
+      "stig_rules": [{"id": "V-254800", "relation": "direct"}, {"id": "V-254801", "relation": "direct"}],
+      "nist_controls": ["CM-6", "AC-6", "CM-7"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT II",
+      "remediation": "Configure Pod Security Admission at the API server (baseline or restricted default with warn/audit for exceptions) as a defense-in-depth layer beneath Kyverno and label platform namespaces accordingly.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-011",
+      "title": "metrics-server is deployed into kube-system with API credential automount",
+      "finding": "metricsServer defaults to `auto` and, when deployed, installs into the kube-system namespace with automountServiceAccountToken: true. Placing a platform-managed workload in the control-plane namespace mixes user-managed resources with system components and places its credentials outside the platform namespaces covered by the automount mutation policy.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:2160-2162", "note": "metricsServer enabled: auto"},
+        {"ref": "chart/values.yaml:2176-2184", "note": "Automount true and kube-system namespace"}
+      ],
+      "stig_rules": [{"id": "V-242417", "relation": "analogous"}, {"id": "V-242383", "relation": "analogous"}],
+      "nist_controls": ["CM-7", "AC-6", "SC-7(21)"],
+      "zero_trust_pillars": ["Applications & Workloads"],
+      "severity": "CAT III",
+      "remediation": "Set metricsServer.values.namespace.name to a dedicated namespace with create: true, or rely on the cluster distribution's metrics-server and set metricsServer.enabled: false.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-POL-012",
+      "title": "Several shipped policy exceptions are annotated as lacking justification",
+      "finding": "The Kyverno policy values contain repeated `NEEDS FURTHER JUSTIFICATION` comments on exceptions for privileged containers, AppArmor, capabilities, hostPath mounts, hostPath writes, and SELinux types. These are risk acceptances embedded in the default baseline without a recorded rationale or approval.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/kyverno-policies/values.yaml:234", "note": "Privileged container exception"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:686", "note": "AppArmor exception"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:697", "note": "Capabilities exception"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:784", "note": "Host path mount exception"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:847", "note": "Host path write exception"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:915-921", "note": "SELinux exceptions"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CM-6", "CA-5", "RA-3"],
+      "zero_trust_pillars": ["Automation & Orchestration"],
+      "severity": "CAT III",
+      "remediation": "Replace each annotation with a reference to an approved exception record (ticket or SSP appendix) that names the risk owner and review date.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-IAM-001",
+      "title": "Single sign-on is disabled for every enabled administrative interface",
+      "finding": "Kiali, Kyverno Reporter, NeuVector, Tempo, Prometheus/Alertmanager, and Grafana are all enabled by default and exposed through the public gateway, but each package's sso.enabled is false. Authentication therefore falls back to package-local mechanisms (local admin accounts, Kubernetes tokens, or none) rather than the enterprise identity provider with MFA and centralized account lifecycle.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:566-568", "note": "Kiali SSO disabled"},
+        {"ref": "chart/values.yaml:702-704", "note": "Kyverno Reporter SSO disabled"},
+        {"ref": "chart/values.yaml:993-995", "note": "NeuVector SSO disabled"},
+        {"ref": "chart/values.yaml:1064-1065", "note": "Tempo SSO disabled"},
+        {"ref": "chart/values.yaml:1185-1187", "note": "Monitoring SSO disabled"},
+        {"ref": "chart/values.yaml:1237-1239", "note": "Grafana SSO disabled"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-2", "IA-2(1)", "IA-2(12)", "IA-8", "AC-2"],
+      "zero_trust_pillars": ["Users", "Applications & Workloads"],
+      "severity": "CAT II",
+      "remediation": "Select the enterprise identity provider, register an OIDC or SAML client per package, and set sso.enabled: true for every exposed interface before accreditation.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Identity: which enterprise identity provider (external realm, program-operated Keycloak, or other) is authoritative for platform administrative access, and is CAC/PIV-backed MFA mandatory for all exposed interfaces?"}
+    },
+    {
+      "id": "BB-IAM-002",
+      "title": "Grafana ships with a hard-coded default administrator password",
+      "finding": "The Grafana authentication Secret rendered by the chart defaults to admin / prom-operator when the tenant does not override upstream.adminPassword, and the same default is duplicated into the Kiali integration Secret. Grafana is enabled by default and routed through the public gateway, so a default installation exposes an administrative login with a publicly documented password.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/grafana/flux/grafana-auth-secret.yaml:22-23", "note": "Default admin credentials"},
+        {"ref": "chart/templates/kiali/grafana-auth-secret.yaml:17-20", "note": "Default duplicated for Kiali"},
+        {"ref": "chart/values.yaml:1214-1216", "note": "Grafana enabled"},
+        {"ref": "docs/configuration/default-credentials.md:21", "note": "Default credentials documented"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-5", "IA-5(1)", "AC-2", "CM-6"],
+      "zero_trust_pillars": ["Users"],
+      "severity": "CAT I",
+      "remediation": "Set grafana.values.upstream.adminPassword (or admin.existingSecret) from a SOPS-encrypted value and enable SSO; consider a Kyverno rule that fails the Grafana HelmRelease when the default password is present.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-IAM-003",
+      "title": "NeuVector console defaults to admin / admin",
+      "finding": "NeuVector is enabled by default, exposed through the public gateway, and has SSO disabled. The documented initial credentials are admin / admin and the chart does not force a change. The console controls runtime enforcement policy for every node, so default credentials grant cluster-wide security control.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:973-975", "note": "NeuVector enabled"},
+        {"ref": "chart/values.yaml:993-995", "note": "NeuVector SSO disabled"},
+        {"ref": "docs/configuration/default-credentials.md:30", "note": "Default admin / admin"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-5", "IA-5(1)", "AC-2", "AC-6"],
+      "zero_trust_pillars": ["Users", "Applications & Workloads"],
+      "severity": "CAT I",
+      "remediation": "Enable NeuVector SSO with the enterprise identity provider and rotate or disable the local admin account during initial provisioning.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-IAM-004",
+      "title": "Prometheus and Alertmanager are exposed without authentication",
+      "finding": "Prometheus and Alertmanager have no built-in authentication. They are protected only when authservice is deployed and monitoring SSO is enabled; both are disabled by default. A default installation exposes metric queries (including label data about every workload) and alert silencing to any network path that reaches the gateway.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "docs/configuration/default-credentials.md:5-10", "note": "No built-in authentication"},
+        {"ref": "chart/values.yaml:1437-1442", "note": "authservice disabled"},
+        {"ref": "chart/templates/monitoring/values.yaml:53", "note": "authservice gating expression"}
+      ],
+      "stig_rules": [{"id": "V-242390", "relation": "analogous"}],
+      "nist_controls": ["IA-2", "AC-3", "AC-14"],
+      "zero_trust_pillars": ["Users", "Visibility & Analytics"],
+      "severity": "CAT II",
+      "remediation": "Enable addons.authservice and monitoring.sso so both interfaces sit behind the identity-aware proxy, or remove their VirtualServices from the public gateway.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Exposure: are Prometheus and Alertmanager exposed at all outside the cluster, and if so is authservice with the enterprise identity provider the approved access path?"}
+    },
+    {
+      "id": "BB-IAM-005",
+      "title": "Default identity provider URL points to an external development realm",
+      "finding": "sso.url defaults to https://login.dso.mil/auth/realms/baby-yoda, the same value used by the development SSO example. A tenant who enables any package SSO without overriding the URL sends authentication flows across the enclave boundary to a realm the program does not administer.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:93-94", "note": "Default sso.url"},
+        {"ref": "docs/reference/configs/example/dev-sso-values.yaml:3", "note": "Same realm in the development example"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-8", "IA-2", "AC-20", "SC-7"],
+      "zero_trust_pillars": ["Users", "Network"],
+      "severity": "CAT II",
+      "remediation": "Set sso.url, sso.certificateAuthority, and per-package client identifiers to the program identity provider and constrain the sso egress definition to its CIDRs.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Identity boundary: is authentication permitted to traverse the enclave boundary to an externally operated realm, or must the identity provider reside inside the accreditation boundary?"}
+    },
+    {
+      "id": "BB-IAM-006",
+      "title": "Grafana OAuth auto-provisions any identity provider user as Viewer",
+      "finding": "When Grafana SSO is enabled the chart sets allow_sign_up to true and role_attribute_path to the constant Viewer. Every authenticated identity provider user is auto-created in Grafana with read access to all dashboards and data sources regardless of group membership.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:1250-1252", "note": "allow_sign_up true, role Viewer"},
+        {"ref": "chart/templates/grafana/values.yaml:303-304", "note": "Rendered from monitoring.sso"},
+        {"ref": "chart/templates/grafana/values.yaml:310-311", "note": "Rendered from grafana.sso"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AC-2", "AC-2(1)", "AC-3", "AC-6(1)"],
+      "zero_trust_pillars": ["Users", "Data"],
+      "severity": "CAT II",
+      "remediation": "Set role_attribute_path to a JMESPath expression over identity provider groups, set role_attribute_strict, and restrict allow_sign_up or allowed_groups to the platform operator groups.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-IAM-007",
+      "title": "Bundled Keycloak uses development database and administrator credentials",
+      "finding": "Keycloak is disabled by default. When enabled without overrides it uses a bundled PostgreSQL with username and password `keycloak`, and the documented initial administrator credentials are admin / password. The production guidance states these are development credentials that must be replaced and that the bundled database is not production-suitable.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:2044-2046", "note": "Keycloak disabled"},
+        {"ref": "chart/templates/keycloak/values.yaml:86-94", "note": "Default database credentials"},
+        {"ref": "docs/configuration/default-credentials.md:29", "note": "admin / password"},
+        {"ref": "docs/configuration/production-considerations/keycloak.md:45-47", "note": "Development credentials must be replaced"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-5", "IA-5(1)", "IA-5(7)", "SC-28"],
+      "zero_trust_pillars": ["Users", "Data"],
+      "severity": "CAT II",
+      "remediation": "Provision an external database with SOPS-protected credentials, set addons.keycloak.database.*, and bootstrap the admin account from a Secret before exposing the realm.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-IAM-008",
+      "title": "Keycloak serves HTTP inside the cluster unless a certificate pair is supplied",
+      "finding": "Keycloak's internal scheme is HTTP and the management scheme is http unless addons.keycloak.ingress.cert and key are both provided, in which case the chart mounts them and switches to HTTPS with the passthrough gateway. CAC/PIV X.509 authentication requires the passthrough path, so the default configuration cannot support certificate-based login.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/templates/keycloak/values.yaml:21", "note": "TLS enabled only with cert and key"},
+        {"ref": "chart/templates/keycloak/values.yaml:107-108", "note": "internalScheme HTTP"},
+        {"ref": "chart/templates/keycloak/values.yaml:119-127", "note": "HTTPS only when TLS enabled"},
+        {"ref": "chart/values.yaml:2084-2090", "note": "Passthrough gateway requirement"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["SC-8", "IA-2(12)", "IA-5(2)"],
+      "zero_trust_pillars": ["Users", "Devices"],
+      "severity": "CAT II",
+      "remediation": "Supply a program PKI certificate pair, route Keycloak through the passthrough gateway, and configure the X.509 browser flow for CAC/PIV.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-SEC-001",
+      "title": "Credentials are accepted as plaintext Helm values and rendered into Secrets",
+      "finding": "Registry, Git, object storage, MinIO, Kiali OIDC, and Keycloak database credentials are all plaintext value fields. The chart base64-encodes them into Kubernetes Secrets; it cannot encrypt them at rest in Git. Protection depends on the tenant encrypting the values file with SOPS and on the cluster's Secret encryption, both documented as tenant responsibilities.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:45-52", "note": "registryCredentials"},
+        {"ref": "chart/values.yaml:78-87", "note": "git.credentials"},
+        {"ref": "chart/values.yaml:949-954", "note": "Loki object storage keys"},
+        {"ref": "chart/values.yaml:1524-1528", "note": "MinIO keys"},
+        {"ref": "chart/templates/git-credentials.yaml:25-35", "note": "Rendered into Secret data"},
+        {"ref": "chart/templates/kiali/sso-client-secret.yaml:9-10", "note": "OIDC secret in stringData"},
+        {"ref": "docs/concepts/encryption.md:9-11", "note": "SOPS requirement"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-5(7)", "SC-28", "SC-28(1)", "SC-12"],
+      "zero_trust_pillars": ["Data", "Automation & Orchestration"],
+      "severity": "CAT II",
+      "remediation": "Store every credential-bearing values file as a SOPS-encrypted Secret with a KMS-backed key, enable etcd encryption at rest on the cluster, and audit Git history for any plaintext commit.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-SEC-002",
+      "title": "Mimir MinIO dependency ships hard-coded root and tenant credentials",
+      "finding": "The optional Mimir MinIO object storage block defaults to root credentials minio / minio123 and tenant credentials mimir-user / supersecret. The block is disabled by default, but enabling it without overriding both credential pairs deploys object storage for metrics with publicly known passwords.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/values.yaml:2355-2365", "note": "Hard-coded MinIO credentials"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-5", "IA-5(1)", "IA-5(7)"],
+      "zero_trust_pillars": ["Data"],
+      "severity": "CAT II",
+      "remediation": "Override configSecret and defaultUserCredentials from SOPS-encrypted values whenever minioObjectStorage is enabled; prefer external object storage for production.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-SEC-003",
+      "title": "Keycloak defaults embed a test-account password",
+      "finding": "The Keycloak package defaults contain a literal Cypress test password under bbtests. Because the block is part of the rendered package defaults, the value is written into the Keycloak values Secret on every deployment, including those with tests disabled.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/keycloak/values.yaml:73-78", "note": "Literal test password in defaults"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["IA-5(7)", "CM-7", "SA-15(7)"],
+      "zero_trust_pillars": ["Users"],
+      "severity": "CAT III",
+      "remediation": "Move test credentials into a test-only values overlay that is applied solely when bbtests.enabled is true.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-SEC-004",
+      "title": "Package credentials are passed through environment variables and chart values",
+      "finding": "When GitLab Redis integration is configured, Grafana receives GITLAB_REDIS_PASSWORD through an environment Secret and interpolates it in its data source configuration. NeuVector's metrics exporter receives its controller password as a chart value (CTRL_PASSWORD) rendered into the package values Secret. Both patterns place credentials where they are visible to anyone who can read pod specs or values Secrets.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/templates/grafana/grafana-env-secret.yaml:13", "note": "Redis password in env Secret"},
+        {"ref": "chart/templates/grafana/values.yaml:222", "note": "Env var interpolated into data source"},
+        {"ref": "chart/templates/neuvector/values.yaml:148-149", "note": "Exporter password as chart value"}
+      ],
+      "stig_rules": [{"id": "V-242415", "relation": "analogous"}],
+      "nist_controls": ["IA-5(7)", "SC-28", "AC-6"],
+      "zero_trust_pillars": ["Data"],
+      "severity": "CAT III",
+      "remediation": "Reference existing Secrets by name from the package charts (secretKeyRef or file mounts) instead of interpolating passwords into values and environment variables, and restrict RBAC read access to the *-values Secrets in the bigbang namespace.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-SEC-005",
+      "title": "Flux drift detection ignores all Jobs, StatefulSets, and the Vault mutating webhook",
+      "finding": "Drift detection is enabled, but the defaults ignore every Job and StatefulSet, and the Vault package additionally ignores its MutatingWebhookConfiguration. Out-of-band modifications to stateful workloads (Loki, Keycloak database, Vault, MinIO) and to the Vault injector webhook are not detected or corrected by reconciliation.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:146-154", "note": "Job and StatefulSet ignored"},
+        {"ref": "chart/values.yaml:2127-2138", "note": "Vault webhook ignored"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CM-3", "CM-6", "SI-7", "SI-7(7)"],
+      "zero_trust_pillars": ["Automation & Orchestration"],
+      "severity": "CAT III",
+      "remediation": "Narrow the StatefulSet ignore rule to the specific fields that cause false drift, and add an alert on StatefulSet and webhook changes from the Kubernetes audit log as a compensating control.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-AUD-001",
+      "title": "Kubernetes API audit logs are not collected by the default logging pipeline",
+      "finding": "Alloy collects pod logs and cluster events, but no default pipeline ingests the API server audit log, and the chart does not configure an audit policy. The security model states that the control plane and a complete audit record remain platform-owner responsibilities. Without API audit ingestion, administrative actions against the cluster are not centrally recorded.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/templates/alloy/values.yaml:299-301", "note": "Pod log collection"},
+        {"ref": "chart/templates/alloy/values.yaml:342-344", "note": "Cluster event collection"},
+        {"ref": "docs/concepts/security-model.md:9", "note": "Control plane is platform-owner responsibility"},
+        {"ref": "docs/concepts/security-model.md:23", "note": "Flux history is not an audit system"}
+      ],
+      "stig_rules": [{"id": "V-242461", "relation": "direct"}, {"id": "V-242462", "relation": "direct"}, {"id": "V-242463", "relation": "direct"}, {"id": "V-242464", "relation": "direct"}, {"id": "V-242465", "relation": "direct"}],
+      "nist_controls": ["AU-2", "AU-3", "AU-12", "AU-6"],
+      "zero_trust_pillars": ["Visibility & Analytics"],
+      "severity": "CAT II",
+      "remediation": "Configure the API server audit policy and log path per the Kubernetes STIG, mount the audit log path into the Alloy DaemonSet (or ship it from the control plane), and route it to Loki or the enterprise SIEM.",
+      "owner": "Tenant",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-AUD-002",
+      "title": "Mesh access logging and tracing are coupled to the Tempo package",
+      "finding": "Istio access log format, tracing, and default telemetry providers are rendered only when tempo.enabled is true. Tempo is enabled by default, so access logs are present, but disabling Tempo (a common cost or scope decision) silently removes gateway and sidecar access logging with no independent switch.",
+      "classification": "secure_by_default_tenant_can_weaken",
+      "evidence": [
+        {"ref": "chart/templates/istiod/values.yaml:69-82", "note": "Access logging gated on tempo.enabled"},
+        {"ref": "chart/values.yaml:1043-1045", "note": "Tempo enabled"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AU-2", "AU-3", "AU-12"],
+      "zero_trust_pillars": ["Visibility & Analytics"],
+      "severity": "CAT II",
+      "remediation": "Decouple accessLogFormat and the Prometheus metrics provider from the Tempo condition so access logging is always rendered, and gate only the tracing provider on Tempo.",
+      "owner": "Platform",
+      "government_decision": {"required": false, "question": ""}
+    },
+    {
+      "id": "BB-AUD-003",
+      "title": "Default log store is a single-replica Loki on local filesystem storage with no retention or replication",
+      "finding": "Loki defaults to the monolith strategy. Without MinIO or external object storage the umbrella template selects filesystem chunk and index storage on a single SingleBinary replica and sets no retention period; the umbrella values do not touch the package chart's persistence settings, so chunks live on one persistent volume attached to that replica. The store therefore has no replicated or immutable copy: loss or corruption of that single volume, or deletion of the StatefulSet with its claim, removes the audit record, and there is no configured retention to satisfy AU-11.",
+      "classification": "insecure_by_default",
+      "evidence": [
+        {"ref": "chart/values.yaml:934-936", "note": "monolith strategy"},
+        {"ref": "chart/templates/loki/values.yaml:145-146", "note": "filesystem storage type"},
+        {"ref": "chart/templates/loki/values.yaml:157-168", "note": "boltdb-shipper and filesystem chunk directory"},
+        {"ref": "chart/templates/loki/values.yaml:178-181", "note": "SingleBinary with one replica"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AU-4", "AU-9", "AU-9(2)", "AU-11"],
+      "zero_trust_pillars": ["Visibility & Analytics", "Data"],
+      "severity": "CAT II",
+      "remediation": "Configure loki.objectStorage against replicated object storage with bucket versioning or object lock, set a retention period matching the records schedule, and move to the scalable strategy for availability.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Audit retention: what retention period and storage class (replicated, immutable, off-cluster) are required for platform logs, and does the program provide the object storage to meet it?"}
+    },
+    {
+      "id": "BB-AUD-004",
+      "title": "No external SIEM or log forwarding destination is configured",
+      "finding": "Alloy additionalDestinations is empty, so logs, metrics, and traces terminate in the in-cluster Loki, Prometheus, and Tempo instances. The security model states that Big Bang does not provide a SIEM, threat intelligence feed, or incident response program. Security-relevant events therefore never leave the cluster unless the tenant adds a destination.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:892-893", "note": "additionalDestinations empty"},
+        {"ref": "docs/concepts/security-model.md:53", "note": "No SIEM or incident response program provided"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["AU-6", "AU-6(3)", "AU-12", "SI-4"],
+      "zero_trust_pillars": ["Visibility & Analytics"],
+      "severity": "CAT III",
+      "remediation": "Add an Alloy destination for the enterprise SIEM (or a Loki remote) and define which log streams, alerts, and NeuVector events are forwarded.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Monitoring architecture: which enterprise SIEM or cybersecurity service provider receives platform security events, and over which approved egress path?"}
+    },
+    {
+      "id": "BB-SUP-001",
+      "title": "Package charts are pulled from public Git sources by tag at reconciliation time",
+      "finding": "offline is false and every package source defaults to a repo1.dso.mil Git repository pinned by tag (or an OCI helm repository). Tags are mutable references and the sources are fetched over the Internet by Flux on each reconciliation. Mirroring into an internal registry or air-gapped source is documented as a tenant decision.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:13-16", "note": "offline: false"},
+        {"ref": "chart/values.yaml:1508-1515", "note": "Example package source pinned by tag"},
+        {"ref": "docs/concepts/security-model.md:47-49", "note": "Registry presence is not provenance"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CM-14", "SI-7", "CM-2", "SR-11"],
+      "zero_trust_pillars": ["Automation & Orchestration"],
+      "severity": "CAT III",
+      "remediation": "Mirror package charts and images into a program-controlled registry, switch sourceType to helmRepo against that registry, and set offline: true so no public GitRepository sources are created.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Supply chain path: are chart and image sources permitted to be fetched from repo1.dso.mil and registry1.dso.mil over the Internet, or must all sources be mirrored inside the boundary?"}
+    },
+    {
+      "id": "BB-OPS-001",
+      "title": "Velero backup is disabled by default and requires root node agents when enabled",
+      "finding": "Velero is disabled by default, so no platform state, Secrets, or persistent volumes are backed up. When enabled with the node agent, the agent is excluded from restrict-user-id and receives a Gatekeeper host filesystem exception because it must read the host pod directory as root. The security model lists backups and restore testing as platform-owner responsibilities.",
+      "classification": "documented_tenant_responsibility",
+      "evidence": [
+        {"ref": "chart/values.yaml:2013-2015", "note": "Velero disabled"},
+        {"ref": "chart/templates/kyverno-policies/values.yaml:942-954", "note": "Node agent root exception"},
+        {"ref": "chart/templates/gatekeeper/values.yaml:131-134", "note": "Node agent host filesystem exception"},
+        {"ref": "docs/concepts/security-model.md:76", "note": "Backups are an owner responsibility"}
+      ],
+      "stig_rules": [],
+      "nist_controls": ["CP-9", "CP-10", "AC-6"],
+      "zero_trust_pillars": ["Data"],
+      "severity": "CAT III",
+      "remediation": "Decide the backup scope (cluster resources only versus persistent volumes), enable Velero against program object storage, and accept the node agent exception only if volume snapshots are not available.",
+      "owner": "Government decision",
+      "government_decision": {"required": true, "question": "Recovery: what platform state must be recoverable, to which storage, and is a root node agent on every node accepted to achieve file-level volume backup?"}
+    }
+  ]
+}
