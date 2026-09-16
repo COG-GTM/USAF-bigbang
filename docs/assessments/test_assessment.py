@@ -25,13 +25,13 @@ import build_assessment_summary as builder  # noqa: E402
 
 FINDING_ID_RE = re.compile(r"\bBB-[A-Z]{3}-\d{3}\b")
 EVIDENCE_REF_RE = re.compile(
-    r"^(?P<path>[A-Za-z0-9_./-]+):(?P<start>\d+)(?:-(?P<end>\d+))?$"
+    r"(?P<path>[A-Za-z0-9_./-]+):(?P<start>\d+)(?:-(?P<end>\d+))?"
 )
 MD_EVIDENCE_RE = re.compile(r"`(?P<ref>[A-Za-z0-9_./-]+:\d+(?:-\d+)?)`")
 SEVERITIES = {"CAT I", "CAT II", "CAT III"}
 OWNERS = {"Platform", "Tenant", "Government decision"}
-STIG_ID_RE = re.compile(r"^V-\d{6}$")
-NIST_CONTROL_RE = re.compile(r"^[A-Z]{2}-\d+(?:\(\d+\))?$")
+STIG_ID_RE = re.compile(r"V-\d{6}")
+NIST_CONTROL_RE = re.compile(r"[A-Z]{2}-\d+(?:\(\d+\))?")
 PILLARS = {
     "Users",
     "Devices",
@@ -60,7 +60,7 @@ def markdown() -> str:
 
 
 def parse_ref(ref: str) -> tuple[Path, int, int]:
-    match = EVIDENCE_REF_RE.match(ref)
+    match = EVIDENCE_REF_RE.fullmatch(ref)
     assert (
         match
     ), f"evidence reference {ref!r} is not in file:line or file:start-end form"
@@ -158,11 +158,11 @@ def test_finding_fields_are_valid(data: dict, findings: list[dict]) -> None:
             "nist_controls"
         ], f"{fid}: at least one 800-53 control is required"
         for control in finding["nist_controls"]:
-            assert NIST_CONTROL_RE.match(
+            assert NIST_CONTROL_RE.fullmatch(
                 control
             ), f"{fid}: malformed control {control!r}"
         for rule in finding["stig_rules"]:
-            assert STIG_ID_RE.match(
+            assert STIG_ID_RE.fullmatch(
                 rule["id"]
             ), f"{fid}: malformed STIG rule {rule['id']!r}"
             assert rule["relation"] in {"direct", "analogous"}, f"{fid}: STIG relation"

@@ -810,8 +810,8 @@
     },
     {
       "id": "BB-AUD-003",
-      "title": "Default log store is a single-replica Loki on ephemeral filesystem storage",
-      "finding": "Loki defaults to the monolith strategy. Without MinIO or external object storage it uses filesystem chunk and index storage on a single SingleBinary replica, and no retention period is configured. Log records are lost on pod rescheduling or volume loss, and there is no immutable or replicated copy to support AU-9 protection or AU-11 retention.",
+      "title": "Default log store is a single-replica Loki on local filesystem storage with no retention or replication",
+      "finding": "Loki defaults to the monolith strategy. Without MinIO or external object storage the umbrella template selects filesystem chunk and index storage on a single SingleBinary replica and sets no retention period; the umbrella values do not touch the package chart's persistence settings, so chunks live on one persistent volume attached to that replica. The store therefore has no replicated or immutable copy: loss or corruption of that single volume, or deletion of the StatefulSet with its claim, removes the audit record, and there is no configured retention to satisfy AU-11.",
       "classification": "insecure_by_default",
       "evidence": [
         {"ref": "chart/values.yaml:934-936", "note": "monolith strategy"},
