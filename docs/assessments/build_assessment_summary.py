@@ -232,6 +232,14 @@ def render_traceability(findings: list[dict], commit: str) -> str:
     return "\n".join(lines)
 
 
+def distinct_evidence_refs(findings: list[dict]) -> set[str]:
+    return {item["ref"] for f in findings for item in f["evidence"]}
+
+
+def distinct_files_cited(findings: list[dict]) -> set[str]:
+    return {ref.rpartition(":")[0] for ref in distinct_evidence_refs(findings)}
+
+
 def render_metadata(meta: dict, findings: list[dict]) -> str:
     return "\n".join(
         [
@@ -243,8 +251,8 @@ def render_metadata(meta: dict, findings: list[dict]) -> str:
             f"| Umbrella chart version | `{meta['chart_version']}` |",
             f"| Assessment date | {meta['assessment_date']} |",
             f"| Distinct findings | {len(findings)} |",
-            f"| Distinct evidence references | {sum(len(f['evidence']) for f in findings)} |",
-            f"| Distinct files cited | {len({e['ref'].rpartition(':')[0] for f in findings for e in f['evidence']})} |",
+            f"| Distinct evidence references | {len(distinct_evidence_refs(findings))} |",
+            f"| Distinct files cited | {len(distinct_files_cited(findings))} |",
         ]
     )
 

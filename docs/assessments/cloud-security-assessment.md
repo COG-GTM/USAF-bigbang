@@ -25,7 +25,7 @@ agreement and that every evidence reference resolves to a real file and line in 
 | Umbrella chart version | `3.32.0` |
 | Assessment date | 2026-09-16 |
 | Distinct findings | 48 |
-| Distinct evidence references | 136 |
+| Distinct evidence references | 134 |
 | Distinct files cited | 29 |
 <!-- END GENERATED: metadata -->
 

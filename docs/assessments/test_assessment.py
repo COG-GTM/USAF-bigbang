@@ -203,6 +203,23 @@ def test_assessed_commit_is_recorded(data: dict, markdown: str) -> None:
     assert commit in markdown, "assessed commit SHA is not present in the Markdown"
 
 
+def test_metadata_evidence_counts_are_distinct(
+    findings: list[dict], markdown: str
+) -> None:
+    refs = [item["ref"] for f in findings for item in f["evidence"]]
+    distinct_refs = set(refs)
+    distinct_files = {ref.rpartition(":")[0] for ref in distinct_refs}
+
+    def metadata_value(label: str) -> int:
+        match = re.search(rf"^\| {re.escape(label)} \| (\d+) \|$", markdown, re.M)
+        assert match, f"metadata row {label!r} missing from Markdown"
+        return int(match.group(1))
+
+    assert metadata_value("Distinct evidence references") == len(distinct_refs)
+    assert metadata_value("Distinct files cited") == len(distinct_files)
+    assert metadata_value("Distinct findings") == len(findings)
+
+
 def test_generated_sections_are_current(data: dict, markdown: str) -> None:
     regenerated = builder.apply_sections(markdown, builder.render_sections(data))
     assert (
