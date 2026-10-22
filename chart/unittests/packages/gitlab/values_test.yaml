@@ -321,3 +321,121 @@ tests:
           path: garage
       - notExists:
           path: postgresql.enabled
+
+  - it: pins every CNG image to the CVE-2026-110264 patched release while the package ships GitLab 19.4.2
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.sso.enabled: true
+      sso.secretName: sso-ca
+    asserts:
+      - equal:
+          path: global.certificates.image.tag
+          value: v19.5.1-ubi
+      - contains:
+          path: global.certificates.customCAs
+          content:
+            secret: ca-certs-dod-trust-anchors-self-signed
+      - equal:
+          path: global.kubectl.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: global.gitlabBase.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.shared-secrets.selfsign.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.webservice.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.webservice.workhorse.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.sidekiq.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.toolbox.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.migrations.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.gitaly.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.gitaly.cgroups.initContainer.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.geo-logcursor.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.mailroom.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.gitlab-pages.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.kas.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.praefect.image.tag
+          value: v19.5.1-ubi
+
+  - it: applies the patched CNG image tags to a vulnerable helmRepo package pin
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.sourceType: helmRepo
+      addons.gitlab.helmRepo.tag: 10.3.2-bb.1
+      addons.gitlab.git.tag: 10.5.1-bb.0
+    asserts:
+      - equal:
+          path: upstream.gitlab.webservice.image.tag
+          value: v19.5.1-ubi
+      - equal:
+          path: upstream.gitlab.sidekiq.image.tag
+          value: v19.5.1-ubi
+
+  - it: stops overriding CNG image tags once the package pin ships a patched GitLab
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.git.tag: 10.5.1-bb.0
+    asserts:
+      - notExists:
+          path: global.gitlabBase
+      - notExists:
+          path: upstream.gitlab.webservice.image
+      - notExists:
+          path: upstream.gitlab.webservice.workhorse.tag
+      - notExists:
+          path: upstream.gitlab.gitaly.image
+
+  - it: does not override CNG image tags for a non-semver package ref
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.git.tag: null
+      addons.gitlab.git.branch: main
+    asserts:
+      - notExists:
+          path: global.gitlabBase
+      - notExists:
+          path: upstream.gitlab.webservice.image

@@ -16,7 +16,7 @@
   "root" $ 
   "package" $gitlabPackage 
   "name" "gitlab" 
-  "defaults" ((mergeOverwrite (include "bigbang.defaults.gitlab" . | fromYaml) (include "bigbang.gitlab.bb-common-migrations" . | fromYaml)) | toYaml)
+  "defaults" ((mergeOverwrite (include "bigbang.defaults.gitlab" . | fromYaml) (include "bigbang.gitlab.bb-common-migrations" . | fromYaml) (include "bigbang.gitlab.patchedImageTags" . | fromYaml)) | toYaml)
 )}}
 {{- end }}
 {{- if and (ne .Values.addons.gitlab.objectStorage.iamProfile "") (ne .Values.addons.gitlab.objectStorage.accessKey "") }}{{- fail "Must choose to use an IAM profile OR an AWS accessKey/accessSecret at .Values.addons.gitlab.objectStorage" }}{{- end }}
