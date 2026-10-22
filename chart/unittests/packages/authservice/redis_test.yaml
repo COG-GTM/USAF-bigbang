@@ -49,3 +49,31 @@ tests:
       - equal:
           path: networkPolicies.egress.from.authservice.to.definition.redis-subnets
           value: true
+
+  - it: should not admit Grafana to the in-cluster Redis unless Grafana Redis datasources are enabled
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+    asserts:
+      - equal:
+          path: networkPolicies.ingress.to["redis-bb:6379"].from.k8s["monitoring/grafana"]
+          value: false
+  - it: should admit Grafana to the in-cluster Redis when Grafana Redis datasources are enabled
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+      grafana.redisDatasources.enabled: true
+    asserts:
+      - equal:
+          path: networkPolicies.ingress.to["redis-bb:6379"].from.k8s["monitoring/grafana"]
+          value: true

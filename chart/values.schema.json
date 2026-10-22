@@ -1053,6 +1053,15 @@
         "ingress": {
           "$ref": "#/$defs/ingress"
         },
+        "redisDatasources": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
         "sso": {
           "type": "object",
           "properties": {
@@ -3959,6 +3968,15 @@
             },
             "ingress": {
               "$ref": "#/$defs/packageAliasPartials/ingress"
+            },
+            "redisDatasources": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
             },
             "sso": {
               "type": "object",

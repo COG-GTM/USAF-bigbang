@@ -116,6 +116,7 @@ tests:
         - "-c"
         - "yq eval '.stringData.defaults' - | yq eval '.'"
     set:
+      grafana.redisDatasources.enabled: true
       addons.gitlab.enabled: true
       addons.gitlab.redis.password: test-password
       addons.gitlab.values.global.redis.host: redis-master.redis.svc.cluster.local
@@ -154,4 +155,69 @@ tests:
           value: redis.argocd.example.internal:6379
       - notEqual:
           path: networkPolicies.egress.from.grafana.to.definition.redis-subnets
+          value: true
+
+  - it: should not provision Redis datasources for GitLab, Argo CD or AuthService by default
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+    asserts:
+      - notMatchRegexRaw:
+          pattern: redis-datasource
+      - notMatchRegexRaw:
+          pattern: GITLAB_REDIS_PASSWORD
+      - notExists:
+          path: upstream.envFromSecret
+      - equal:
+          path: networkPolicies.egress.from.grafana.to.k8s["authservice/authservice:10003"]
+          value: false
+      - equal:
+          path: networkPolicies.egress.from.grafana.to.definition.redis-subnets
+          value: false
+
+  - it: should provision Redis datasources only when grafana.redisDatasources.enabled is true
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      grafana.redisDatasources.enabled: true
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+    asserts:
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].datasources
+          content:
+            name: Argo Master
+            type: redis-datasource
+          any: true
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].datasources
+          content:
+            name: AuthService Master
+            type: redis-datasource
+          any: true
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].datasources
+          content:
+            name: GitLab
+            type: redis-datasource
+          any: true
+      - equal:
+          path: upstream.envFromSecret
+          value: grafana-env-secret
+      - equal:
+          path: networkPolicies.egress.from.grafana.to.k8s["authservice/authservice:10003"]
           value: true
