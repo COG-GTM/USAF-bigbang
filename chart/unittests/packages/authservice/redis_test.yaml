@@ -77,3 +77,19 @@ tests:
       - equal:
           path: networkPolicies.ingress.to["redis-bb:6379"].from.k8s["monitoring/grafana"]
           value: true
+  - it: should admit the legacy Monitoring-owned Grafana to the in-cluster Redis when Grafana Redis datasources are enabled
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+      grafana.enabled: false
+      grafana.redisDatasources.enabled: true
+      monitoring.values.upstream.grafana.enabled: true
+    asserts:
+      - equal:
+          path: networkPolicies.ingress.to["redis-bb:6379"].from.k8s["monitoring/grafana"]
+          value: true

@@ -141,10 +141,18 @@ upstream:
     service.istio.io/canonical-name: monitoring-grafana
   {{- end }}
 
-  {{- if or .Values.monitoring.enabled .Values.loki.enabled .Values.tempo.enabled $gitlabRedis $authserviceRedisEnabled $argocdRedisDatasourceEnabled }}
+  {{- if or .Values.monitoring.enabled .Values.loki.enabled .Values.tempo.enabled $gitlabRedis $authserviceRedisEnabled $argocdRedisDatasourceEnabled (not $redisDatasourcesEnabled) }}
   datasources:
     datasourcesbb.yaml:
       apiVersion: 1
+      {{- if not $redisDatasourcesEnabled }}
+      {{- /* remove Redis datasources provisioned by earlier releases so the opt-out also applies on upgrade */}}
+      deleteDatasources:
+      {{- range list "Argo Master" "Argo Headless" "Argo Replicas" "AuthService Master" "AuthService Headless" "AuthService Replicas" "GitLab" }}
+      - name: {{ . }}
+        orgId: 1
+      {{- end }}
+      {{- end }}
       datasources:
       {{- if .Values.addons.mimir.enabled }}
       - name: Mimir
