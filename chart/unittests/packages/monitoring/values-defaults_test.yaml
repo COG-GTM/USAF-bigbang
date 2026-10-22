@@ -125,3 +125,33 @@ tests:
           path: upstream.prometheus.prometheusSpec.alertingEndpoints[0].tlsConfig.caFile
       - notExists:
           path: upstream.prometheus.prometheusSpec.podMetadata.annotations["sidecar.istio.io/userVolumeMount"]
+
+  - it: should not enable the legacy Grafana Redis datasources by default
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+    asserts:
+      - notExists:
+          path: redis.enabled
+
+  - it: should enable the legacy Grafana Redis datasources when grafana.redisDatasources.enabled is true
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      grafana.redisDatasources.enabled: true
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+    asserts:
+      - equal:
+          path: redis.enabled
+          value: true

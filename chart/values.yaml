@@ -1253,7 +1253,7 @@ grafana:
       # -- Other options available, see package Documentation.
 
   redisDatasources:
-    # -- Toggle provisioning of `redis-datasource` datasources that point Grafana at the GitLab, Argo CD and AuthService Redis instances for their bundled dashboards. The redis-datasource plugin executes any Redis command a Grafana user submits and every Grafana user, including SSO Viewers, can query provisioned datasources, so leave this disabled unless every Grafana user is trusted with read/write access to those Redis stores.
+    # -- Toggle provisioning of `redis-datasource` datasources that point Grafana at the GitLab, Argo CD and AuthService Redis instances for their bundled dashboards. The redis-datasource plugin executes any Redis command a Grafana user submits and every Grafana user, including SSO Viewers, can query provisioned datasources, so leave this disabled unless every Grafana user is trusted with read/write access to those Redis stores. Also governs the legacy Monitoring-owned Grafana (`monitoring.values.upstream.grafana.enabled`).
     enabled: false
 
   # -- Values to passthrough to the grafana chart: https://repo1.dso.mil/big-bang/product/packages/grafana.git
