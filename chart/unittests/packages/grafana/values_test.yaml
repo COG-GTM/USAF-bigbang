@@ -116,6 +116,7 @@ tests:
         - "-c"
         - "yq eval '.stringData.defaults' - | yq eval '.'"
     set:
+      grafana.redisDatasources.enabled: true
       addons.gitlab.enabled: true
       addons.gitlab.redis.password: test-password
       addons.gitlab.values.global.redis.host: redis-master.redis.svc.cluster.local
@@ -154,4 +155,136 @@ tests:
           value: redis.argocd.example.internal:6379
       - notEqual:
           path: networkPolicies.egress.from.grafana.to.definition.redis-subnets
+          value: true
+
+  - it: should not provision Redis datasources for GitLab, Argo CD or AuthService by default
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+    asserts:
+      - notMatchRegexRaw:
+          pattern: redis-datasource
+      - notMatchRegexRaw:
+          pattern: GITLAB_REDIS_PASSWORD
+      - notExists:
+          path: upstream.envFromSecret
+      - equal:
+          path: networkPolicies.egress.from.grafana.to.k8s["authservice/authservice:10003"]
+          value: false
+      - equal:
+          path: networkPolicies.egress.from.grafana.to.definition.redis-subnets
+          value: false
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          content:
+            name: GitLab
+            orgId: 1
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          content:
+            name: Argo Master
+            orgId: 1
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          content:
+            name: AuthService Master
+            orgId: 1
+
+  - it: should delete previously provisioned Redis datasources even when no other datasource is rendered
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      monitoring.enabled: false
+      loki.enabled: false
+      tempo.enabled: false
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+    asserts:
+      - lengthEqual:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          count: 7
+      - notMatchRegexRaw:
+          pattern: redis-datasource
+
+  - it: should only delete the Redis datasources the chart would previously have provisioned
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.argocd.enabled: true
+    asserts:
+      - lengthEqual:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          count: 3
+      - notContains:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          content:
+            name: GitLab
+            orgId: 1
+
+  - it: should not emit deleteDatasources when no component Redis is configured
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    asserts:
+      - notExists:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+
+  - it: should provision Redis datasources only when grafana.redisDatasources.enabled is true
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      grafana.redisDatasources.enabled: true
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+    asserts:
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].datasources
+          content:
+            name: Argo Master
+            type: redis-datasource
+          any: true
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].datasources
+          content:
+            name: AuthService Master
+            type: redis-datasource
+          any: true
+      - contains:
+          path: upstream.datasources["datasourcesbb.yaml"].datasources
+          content:
+            name: GitLab
+            type: redis-datasource
+          any: true
+      - notExists:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+      - equal:
+          path: upstream.envFromSecret
+          value: grafana-env-secret
+      - equal:
+          path: networkPolicies.egress.from.grafana.to.k8s["authservice/authservice:10003"]
           value: true

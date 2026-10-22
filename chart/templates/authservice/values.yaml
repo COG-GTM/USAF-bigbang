@@ -121,7 +121,7 @@ networkPolicies:
       redis-bb:6379:
         from:
           k8s:
-            monitoring/grafana: {{ and $internalRedisEnabled .Values.monitoring.enabled }}
+            monitoring/grafana: {{ and $internalRedisEnabled .Values.monitoring.enabled (or .Values.grafana.enabled (dig "upstream" "grafana" "enabled" false .Values.monitoring.values)) (dig "redisDatasources" "enabled" false .Values.grafana) }}
       haproxy:8080:
         from:
           k8s:

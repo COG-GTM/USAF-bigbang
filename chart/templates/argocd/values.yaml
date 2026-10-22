@@ -147,7 +147,7 @@ networkPolicies:
       redis-bb:6379:
         from:
           k8s:
-            monitoring/grafana: {{ and (not $externalRedisEnabled) (dig "redis-bb" "enabled" true .Values.addons.argocd.values) .Values.grafana.enabled }}
+            monitoring/grafana: {{ and (not $externalRedisEnabled) (dig "redis-bb" "enabled" true .Values.addons.argocd.values) .Values.grafana.enabled (dig "redisDatasources" "enabled" false .Values.grafana) }}
       # -- Ingress to redis-exporter for metrics from prometheus
       redis-bb:9121:
         from:

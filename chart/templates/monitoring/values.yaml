@@ -47,8 +47,10 @@ Sidecar-specific annotations and cert mounting don't apply in ambient mode.
 mTLS strict mode with sidecar certs is only applicable when sidecars are used (not ambient mode).
 */}}
 {{- $monitoringMtlsStrict := and $mtlsStrict $sidecarInjectionEnabled }}
-{{- $gitlabRedis := (and (ne .Values.addons.gitlab.redis.password "" ) (or .Values.addons.gitlab.enabled .Values.addons.gitlabRunner.enabled)) }}
-{{- $authserviceRedisEnabled := (and (dig "values" "redis" "enabled" false .Values.addons.authservice) .Values.addons.authservice.enabled) }}
+{{- /* redis-datasource runs arbitrary Redis commands for any Grafana user, so every Redis datasource is opt-in */ -}}
+{{- $redisDatasourcesEnabled := dig "redisDatasources" "enabled" false .Values.grafana }}
+{{- $gitlabRedis := (and $redisDatasourcesEnabled (ne .Values.addons.gitlab.redis.password "" ) (or .Values.addons.gitlab.enabled .Values.addons.gitlabRunner.enabled)) }}
+{{- $authserviceRedisEnabled := (and $redisDatasourcesEnabled (dig "values" "redis" "enabled" false .Values.addons.authservice) .Values.addons.authservice.enabled) }}
 
 {{- $authserviceEnabled := and $istioEnabled (or .Values.addons.authservice.enabled (and .Values.monitoring.enabled .Values.monitoring.sso.enabled) (and .Values.tempo.enabled .Values.tempo.sso.enabled)) }}
 {{/*
@@ -58,7 +60,7 @@ the per-route authservice config, the self-waypoint Service enrollment, and
 prependReleaseName (so the waypoint is named monitoring-monitoring-waypoint).
 */}}
 {{- $monitoringAuthserviceWaypoint := eq (include "monitoring.authservice.waypointEnabled" .) "true" }}
-{{- $redisDatasource := (or $gitlabRedis .Values.addons.argocd.enabled $authserviceRedisEnabled) }}
+{{- $redisDatasource := (and $redisDatasourcesEnabled (or $gitlabRedis .Values.addons.argocd.enabled $authserviceRedisEnabled)) }}
 {{- $headlampEnabled := (.Values.addons.headlamp.enabled) }}
 {{- $thanosEnabled := (.Values.addons.thanos.enabled) }}
 {{- $lokiEnabled := (.Values.loki.enabled) }}

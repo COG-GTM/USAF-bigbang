@@ -1252,6 +1252,10 @@ grafana:
       role_attribute_path: "Viewer"
       # -- Other options available, see package Documentation.
 
+  redisDatasources:
+    # -- Toggle provisioning of `redis-datasource` datasources that point Grafana at the GitLab, Argo CD and AuthService Redis instances for their bundled dashboards. The redis-datasource plugin executes any Redis command a Grafana user submits and every Grafana user, including SSO Viewers, can query provisioned datasources, so leave this disabled unless every Grafana user is trusted with read/write access to those Redis stores. Also governs the legacy Monitoring-owned Grafana (`monitoring.values.upstream.grafana.enabled`).
+    enabled: false
+
   # -- Values to passthrough to the grafana chart: https://repo1.dso.mil/big-bang/product/packages/grafana.git
   values: {}
 
@@ -1650,7 +1654,7 @@ addons:
       password: ""
 
     redis:
-      # -- Plain text password for an externally managed Redis or Valkey service. When set, Big Bang creates `gitlab-redis-secret-bb` and configures GitLab to use it. Configure the external endpoint with `addons.gitlab.values.global.redis.host` or `addons.gitlab.values.global.redis.redisYmlOverride`. Leave this empty only when authentication is disabled or supplied entirely through passthrough values. A non-empty value is also required for the Grafana Redis datasource and dashboards.
+      # -- Plain text password for an externally managed Redis or Valkey service. When set, Big Bang creates `gitlab-redis-secret-bb` and configures GitLab to use it. Configure the external endpoint with `addons.gitlab.values.global.redis.host` or `addons.gitlab.values.global.redis.redisYmlOverride`. Leave this empty only when authentication is disabled or supplied entirely through passthrough values. A non-empty value is also required for the Grafana Redis datasource and dashboards when `grafana.redisDatasources.enabled` is true.
       password: ""
 
     # -- Rails plain text secret to define. If empty (""), the gitlab charts will create the gitlab-rails-secret with randomized data.
