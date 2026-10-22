@@ -439,3 +439,52 @@ tests:
           path: global.gitlabBase
       - notExists:
           path: upstream.gitlab.webservice.image
+
+  - it: does not override CNG image tags when a git commit selects the package instead of the default tag
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.git.tag: null
+      addons.gitlab.git.branch: maintenance
+      addons.gitlab.git.commit: 0123456789abcdef0123456789abcdef01234567
+    asserts:
+      - notExists:
+          path: global.gitlabBase
+      - notExists:
+          path: upstream.gitlab.webservice.image
+
+  - it: does not override CNG image tags when a git semver range selects the package instead of the default tag
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.git.semver: ">= 10.0.0"
+    asserts:
+      - notExists:
+          path: global.gitlabBase
+      - notExists:
+          path: upstream.gitlab.webservice.image
+
+  - it: does not override CNG image tags for the GitLab 18.11 migration package pin
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.gitlab.enabled: true
+      addons.gitlab.git.tag: 9.11.7-bb.0
+    asserts:
+      - notExists:
+          path: global.gitlabBase
+      - notExists:
+          path: upstream.gitlab.webservice.image
+      - notExists:
+          path: upstream.gitlab.sidekiq.image

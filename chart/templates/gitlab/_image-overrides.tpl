@@ -4,7 +4,7 @@ GitLab CNG image tags that Big Bang pins ahead of the GitLab package chart.
 CVE-2026-110264 (CVSS 10.0, unauthenticated remote code execution through an integer overflow in
 the Onigmo regular expression compiler) is fixed in GitLab 19.3.6, 19.4.3 and 19.5.1. Every
 published Big Bang GitLab package tag up to and including 10.4.2-bb.1 ships GitLab 19.4.2 or
-older, so while the configured package tag is below 10.5.1-bb.0 the umbrella overrides every CNG
+older, so while the configured package tag is a 10.x release below 10.5.1-bb.0 the umbrella overrides every CNG
 image tag the package sets (chart/values.yaml in the package) to the patched Verified Publisher
 release that is mirrored in registry1. Operator overlays under addons.gitlab.values still win.
 
@@ -12,10 +12,17 @@ Remove this override, and its unit tests, once the default package pin is at or 
 */ -}}
 {{- define "bigbang.gitlab.patchedImageTags" -}}
 {{- $gitlab := .Values.addons.gitlab -}}
-{{- $packageTag := ternary (dig "helmRepo" "tag" "" $gitlab) (dig "git" "tag" "" $gitlab) (eq $gitlab.sourceType "helmRepo") | toString -}}
-{{- $patchedPackageConstraint := "< 10.5.1-0" -}}
+{{- /* Mirror the "validRef" precedence: a git commit or semver range selects the chart instead of git.tag, and the GitLab version it ships is unknown. */ -}}
+{{- $packageTag := "" -}}
+{{- if eq $gitlab.sourceType "helmRepo" -}}
+{{- $packageTag = dig "helmRepo" "tag" "" $gitlab | toString -}}
+{{- else if not (or (dig "git" "commit" "" $gitlab) (dig "git" "semver" "" $gitlab)) -}}
+{{- $packageTag = dig "git" "tag" "" $gitlab | toString -}}
+{{- end -}}
+{{- /* Only GitLab 19 (chart 10.x) packages below the first patched package release; a 9.11.x pin is the GitLab 18.11 migration step and keeps its own images. */ -}}
+{{- $vulnerablePackageConstraint := ">= 10.0.0-0, < 10.5.1-0" -}}
 {{- $patchedImageTag := "v19.5.1-ubi" -}}
-{{- if and (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+" $packageTag) (semverCompare $patchedPackageConstraint $packageTag) }}
+{{- if and (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+" $packageTag) (semverCompare $vulnerablePackageConstraint $packageTag) }}
 global:
   certificates:
     image:
