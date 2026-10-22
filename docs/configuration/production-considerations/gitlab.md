@@ -9,6 +9,17 @@ The current Big Bang GitLab package uses GitLab 19 and Helm chart 10.
 
 There is no automatic migration from the formerly bundled services. Existing deployments must migrate while still running the latest GitLab 18.11 and chart 9.11 patch. Follow the package's [GitLab 19 upgrade notes](https://repo1.dso.mil/big-bang/product/packages/gitlab/-/blob/main/docs/gitlab-19-upgrade.md) before upgrading.
 
+## Patch Level for CVE-2026-110264
+
+CVE-2026-110264 (CVSS 10.0) lets an unauthenticated user execute arbitrary code on GitLab 19.3 before 19.3.6, 19.4 before 19.4.3, and 19.5 before 19.5.1 through an integer overflow when GitLab compiles a specially crafted regular expression. Big Bang publishes `gitlab.<domain>` on the public ingress gateway, so every deployment with `addons.gitlab.enabled: true` is reachable by the attacker this advisory describes.
+
+Every published Big Bang GitLab package tag up to and including `10.4.2-bb.1` ships GitLab 19.4.2 or older. Until a package tag at or above `10.5.1-bb.0` exists, Big Bang pins the GitLab package to `10.4.2-bb.1` and overrides every CNG image tag the package sets (`global.certificates`, `global.kubectl`, `global.gitlabBase`, `upstream.shared-secrets.selfsign`, and each `upstream.gitlab.<component>` image, including Workhorse and the Gitaly cgroups init container) to `v19.5.1-ubi`, the patched Verified Publisher release mirrored in registry1. The override applies only while the configured `addons.gitlab.git.tag` or `addons.gitlab.helmRepo.tag` is a `10.x` semantic version below `10.5.1-0`. A `9.11.x` pin (the GitLab 18.11 migration step), a branch, a commit, or a semver-range source is left untouched because those charts ship a different GitLab version or one Big Bang cannot determine.
+
+> [!WARNING]
+> Chart `10.4.x` with GitLab `19.5.1` images is a cross-minor combination that upstream GitLab documents as an override, not a tested release pairing. Review the [GitLab 19.5 upgrade notes](https://docs.gitlab.com/update/versions/gitlab_19_changes/) before Flux reconciles the change, and take a backup first. To stay on the exact chart pairing instead, set the image tags beneath `addons.gitlab.values` to a release you have validated and restrict `routes.inbound.gitlab` to trusted networks until the package publishes a patched tag.
+
+When the GitLab package publishes `10.5.1-bb.0` or later, move `addons.gitlab.git.tag` and `addons.gitlab.helmRepo.tag` to that tag. The override disables itself for that pin; remove `chart/templates/gitlab/_image-overrides.tpl` and its unit tests in the following release.
+
 ## Configure Required External Services
 
 GitLab 19 requires:
