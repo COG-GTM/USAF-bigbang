@@ -208,12 +208,45 @@ tests:
       monitoring.enabled: false
       loki.enabled: false
       tempo.enabled: false
+      addons.gitlab.enabled: true
+      addons.gitlab.redis.password: test-password
+      addons.argocd.enabled: true
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
     asserts:
       - lengthEqual:
           path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
           count: 7
       - notMatchRegexRaw:
           pattern: redis-datasource
+
+  - it: should only delete the Redis datasources the chart would previously have provisioned
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.argocd.enabled: true
+    asserts:
+      - lengthEqual:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          count: 3
+      - notContains:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
+          content:
+            name: GitLab
+            orgId: 1
+
+  - it: should not emit deleteDatasources when no component Redis is configured
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    asserts:
+      - notExists:
+          path: upstream.datasources["datasourcesbb.yaml"].deleteDatasources
 
   - it: should provision Redis datasources only when grafana.redisDatasources.enabled is true
     postRenderer:

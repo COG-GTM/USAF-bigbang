@@ -23,14 +23,19 @@ domain: {{ $domainName }}
 
 {{- /* redis-datasource runs arbitrary Redis commands for any Grafana user, so every Redis datasource is opt-in */ -}}
 {{- $redisDatasourcesEnabled := dig "redisDatasources" "enabled" false .Values.grafana }}
-{{- $gitlabRedis := (and $redisDatasourcesEnabled (ne .Values.addons.gitlab.redis.password "" ) (or .Values.addons.gitlab.enabled .Values.addons.gitlabRunner.enabled)) }}
+{{- $gitlabRedisConfigured := (and (ne .Values.addons.gitlab.redis.password "" ) (or .Values.addons.gitlab.enabled .Values.addons.gitlabRunner.enabled)) }}
+{{- $gitlabRedis := and $redisDatasourcesEnabled $gitlabRedisConfigured }}
 {{- $gitlabExternalRedisHost := dig "global" "redis" "host" "" .Values.addons.gitlab.values }}
 {{- $gitlabRedisHost := default "gitlab-redis-master.gitlab.svc.cluster.local" $gitlabExternalRedisHost }}
 {{- $gitlabRedisPort := dig "global" "redis" "port" 6379 .Values.addons.gitlab.values }}
 {{- $gitlabExternalRedisEnabled := and $gitlabRedis (not (empty $gitlabExternalRedisHost)) }}
 {{- $argocdExternalRedisEnabled := and .Values.addons.argocd.enabled (not (empty .Values.addons.argocd.redis.host)) }}
-{{- $argocdRedisDatasourceEnabled := and $redisDatasourcesEnabled .Values.addons.argocd.enabled (not $argocdExternalRedisEnabled) }}
-{{- $authserviceRedisEnabled := (and $redisDatasourcesEnabled (dig "values" "redis" "enabled" false .Values.addons.authservice) .Values.addons.authservice.enabled) }}
+{{- $argocdRedisConfigured := and .Values.addons.argocd.enabled (not $argocdExternalRedisEnabled) }}
+{{- $argocdRedisDatasourceEnabled := and $redisDatasourcesEnabled $argocdRedisConfigured }}
+{{- $authserviceRedisConfigured := (and (dig "values" "redis" "enabled" false .Values.addons.authservice) .Values.addons.authservice.enabled) }}
+{{- $authserviceRedisEnabled := and $redisDatasourcesEnabled $authserviceRedisConfigured }}
+{{- /* Earlier releases provisioned these datasources whenever the component Redis was configured; delete them when the opt-in is off so an upgrade removes them */ -}}
+{{- $redisDatasourceCleanup := and (not $redisDatasourcesEnabled) (or $gitlabRedisConfigured $argocdRedisConfigured $authserviceRedisConfigured) }}
 {{- $enterpriseEnabled := (dig "enterprise" "enabled" false .Values.grafana) }}
 
 flux:
@@ -141,15 +146,26 @@ upstream:
     service.istio.io/canonical-name: monitoring-grafana
   {{- end }}
 
-  {{- if or .Values.monitoring.enabled .Values.loki.enabled .Values.tempo.enabled $gitlabRedis $authserviceRedisEnabled $argocdRedisDatasourceEnabled (not $redisDatasourcesEnabled) }}
+  {{- if or .Values.monitoring.enabled .Values.loki.enabled .Values.tempo.enabled $gitlabRedis $authserviceRedisEnabled $argocdRedisDatasourceEnabled $redisDatasourceCleanup }}
   datasources:
     datasourcesbb.yaml:
       apiVersion: 1
-      {{- if not $redisDatasourcesEnabled }}
-      {{- /* remove Redis datasources provisioned by earlier releases so the opt-out also applies on upgrade */}}
+      {{- if $redisDatasourceCleanup }}
       deleteDatasources:
-      {{- range list "Argo Master" "Argo Headless" "Argo Replicas" "AuthService Master" "AuthService Headless" "AuthService Replicas" "GitLab" }}
+      {{- if $argocdRedisConfigured }}
+      {{- range list "Argo Master" "Argo Headless" "Argo Replicas" }}
       - name: {{ . }}
+        orgId: 1
+      {{- end }}
+      {{- end }}
+      {{- if $authserviceRedisConfigured }}
+      {{- range list "AuthService Master" "AuthService Headless" "AuthService Replicas" }}
+      - name: {{ . }}
+        orgId: 1
+      {{- end }}
+      {{- end }}
+      {{- if $gitlabRedisConfigured }}
+      - name: GitLab
         orgId: 1
       {{- end }}
       {{- end }}

@@ -93,3 +93,18 @@ tests:
       - equal:
           path: networkPolicies.ingress.to["redis-bb:6379"].from.k8s["monitoring/grafana"]
           value: true
+  - it: should not admit monitoring/grafana to the in-cluster Redis when no Grafana is deployed even if Redis datasources are enabled
+    postRenderer:
+      cmd: "sh"
+      args:
+        - "-c"
+        - "yq eval '.stringData.defaults' - | yq eval '.'"
+    set:
+      addons.authservice.enabled: true
+      addons.authservice.values.redis.enabled: true
+      grafana.enabled: false
+      grafana.redisDatasources.enabled: true
+    asserts:
+      - equal:
+          path: networkPolicies.ingress.to["redis-bb:6379"].from.k8s["monitoring/grafana"]
+          value: false
